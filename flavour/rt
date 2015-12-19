@@ -1,0 +1,3 @@
+enable preempt_rt_full
+enable high_res_timers
+disable apm

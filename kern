@@ -1,0 +1,191 @@
+#! /usr/bin/env python3
+
+import os
+import sys
+import shutil
+import getopt
+import configparser
+
+class col:
+    blue   = '\033[94m'
+    green  = '\033[92m'
+    orange = '\033[93m'
+    red    = '\033[91m'
+    reset  = '\033[0m'
+
+cfg = configparser.ConfigParser()
+base_dir = os.path.dirname(os.path.realpath(__file__)) + "/"
+
+def repo_reset(repo, branch):
+    os.system("git checkout -f " + branch + " 2> /dev/null")
+    #os.system("git reset --hard " + tag + " > /dev/null")
+    os.system("git clean -x -f -e patch > /dev/null")
+    for patch in os.listdir(base_dir + "patch"):
+        if patch.endswith(".patch"):
+            print("  Applying patch " + col.blue + patch + col.reset)
+            #os.system("patch -p1 < " + base_dir + "patch/" + patch + ">/dev/null")
+            os.system("git am --signoff -q < " + base_dir + "patch/" + patch)
+
+def repo_update(repo, cfg):
+    branch = cfg[section]['branch']
+    repo_path = base_dir + "repo/" + repo
+    print("Updating " + col.green + repo + col.reset)
+    print("  Fetching " + col.blue + branch + col.reset)
+    if not os.path.exists(repo_path):
+        os.makedirs(repo_path)
+        os.chdir(repo_path)
+        os.system("git init")
+        os.system("git remote add origin " + cfg[section]['git'])
+    else:
+        os.chdir(repo_path)
+    os.system("git fetch --all >/dev/null")
+    repo_reset(repo, branch)
+
+def repo_patch(repo, branch):
+    print("Updating " + col.green + repo + col.reset)
+    os.chdir(base_dir + "repo/" + repo)
+    repo_reset(repo, branch)
+
+def make_config(repo, kconfig, flavours, bname):
+    if not flavours:
+        dst = base_dir + "build/" + repo
+    else:
+        dst = base_dir + "build/" + repo + "_" + '_'.join(flavours)
+    kpath = base_dir + "repo/" + repo
+    if not os.path.exists(dst):
+        os.makedirs(dst)
+    os.chdir(kpath)
+    shutil.copyfile(base_dir + "config/" + kconfig, ".config")
+    for flavour in flavours:
+        print("  Applying " + col.blue + flavour + col.reset + " flavour")
+        with open(base_dir + "flavour/" + flavour) as f:
+            for l in f.readlines():
+                os.system("./scripts/config --" + l)
+    if flavours:
+        os.system("./scripts/config --set-str localversion " + bname)
+    shutil.copyfile(".config", dst + "/.config")
+    os.remove(".config")
+    os.chdir(base_dir + "repo/" + repo)
+    print("  Refreshing config")
+    os.system("KBUILD_OUTPUT=" + dst + " make olddefconfig >/dev/null")
+    return dst
+
+def make_old_release(repo, kpath):
+    os.chdir(kpath)
+    try:
+        with open('include/config/kernel.release') as f:
+            release = f.readline().rstrip('\n')
+    except:
+        return ""
+    return release
+
+def make_build(repo, kpath):
+    os.chdir(base_dir + "repo/" + repo)
+    print("  Compiling linux")
+    if os.system("KBUILD_OUTPUT=" + kpath + " make -j5 > /dev/null") != 0:
+        sys.exit(1)
+    print("  Compiling modules")
+    if os.system("KBUILD_OUTPUT=" + kpath + " make modules_prepare >/dev/null") != 0:
+        sys.exit(1)
+    if os.system("KBUILD_OUTPUT=" + kpath + " make modules -j5 >/dev/null") != 0:
+        sys.exit(1)
+
+def make_install(repo, kpath, old_release, bname):
+    print("  Installing linux " + col.green + bname + col.reset)
+    os.chdir(kpath)
+    with open('include/config/kernel.release') as f:
+        release = f.readline().rstrip('\n')
+    # Install new release
+    os.makedirs("/boot/" + bname, exist_ok=True)
+    os.system("KBUILD_OUTPUT=" + kpath + " make modules_install >/dev/null")
+    shutil.copyfile('arch/x86/boot/bzImage', '/boot/' + bname + '/vmlinuz')
+    shutil.copyfile('vmlinux', '/boot/' + bname + '/vmlinux')
+
+    print("  Creating initramfs")
+    os.system(" mkinitcpio -k " + release + " -c /etc/mkinitcpio.conf -g /boot/" + bname + "/initramfs.img > /dev/null 2>&1")
+
+    print("  Adding bootloader entry:")
+    with open('/boot/loader/entries/arch-' + bname + '.conf', 'w') as f:
+        f.write("title  Arch Linux (" + bname + ")\n")
+        f.write("linux  /" + bname + "/vmlinuz\n")
+        f.write("initrd /" + bname + "/initramfs.img\n")
+        f.write("options    root=/dev/sda5 rw" + "\n")
+
+def make(repo, base_config, flavours):
+    bname = repo
+    if flavours:
+        bname += "-" + '_'.join(flavours)
+    print("Building " + col.green + repo + col.reset + " " + str(flavours))
+    kpath = make_config(repo, base_config, flavours, bname)
+    old_release = make_old_release(repo, kpath)
+    make_build(repo, kpath)
+    make_install(repo, kpath, old_release, bname)
+
+def make_uninstall(release):
+    shutil.rmtree("/lib/modules/" + release)
+    os.remove("/boot/" + release)
+    os.remove("/boot/loader/entries/arch-" + release + ".conf")
+
+def make_firm():
+    firm_path = base_dir + "firmware"
+    if not os.path.exists(firm_path):
+        os.makedirs(firm_path)
+        os.chdir(firm_path)
+        os.system("git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git")
+    os.chdir(firm_path)
+    print("Updating firmware")
+    os.system("git pull > /dev/null")
+    print("Installing firmware")
+    os.system("make install > /dev/null")
+
+if __name__ == "__main__":
+    cfg.read(base_dir + "repo/repo.ini")
+    argc = len(sys.argv)
+    cmd = sys.argv[1]
+    if cmd == "update":
+        if argc <= 2:
+            repo = os.path.basename(os.getcwd())
+        else:
+            repo = sys.argv[2]
+        if repo == "all":
+            for section in cfg.sections():
+                repo_update(section, cfg)
+        else:
+            for section in cfg.sections():
+                if section == repo:
+                    repo_update(section, cfg)
+
+    elif cmd == "patch":
+        if argc <= 2:
+            repo = os.path.basename(os.getcwd())
+        else:
+            repo = sys.argv[2]
+        if repo == "all":
+            for section in cfg.sections():
+                os.chdir(base_dir + "repo/" + section)
+                repo_patch(section, cfg[section]['branch'])
+        else:
+            repo_patch(repo, cfg[repo]['branch'])
+
+    elif cmd == "build":
+        repo = sys.argv[2]
+        base_config = 'l450'
+        flavours = sys.argv[3:]
+        make(repo, base_config, flavours)
+
+    elif cmd == "uninstall":
+        repo = sys.argv[2]
+        make_uninstall(repo)
+
+    elif cmd == "firm":
+        make_firm()
+
+    elif cmd == "kexec":
+        repo = sys.argv[2]
+        flavours = sys.argv[3:]
+        kpath = "/boot/" + repo
+        if flavours:
+            kpath += "-" + '_'.join(flavours)
+        print("Kexec " + kpath)
+        os.system("kexec -l " + kpath + "/vmlinuz --initrd=" + kpath + "/initramfs.img --reuse-cmdline --args-linux")
+        os.system("kexec -e")
