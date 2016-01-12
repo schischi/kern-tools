@@ -6,6 +6,7 @@ import shutil
 import getopt
 import configparser
 import argparse
+from subprocess import Popen, PIPE
 
 base_dir = os.path.dirname(os.path.realpath(__file__)) + "/"
 cfg = configparser.ConfigParser()
@@ -49,7 +50,7 @@ def repo_update(repo):
         os.makedirs(repo_path)
         os.chdir(repo_path)
         os.system("git init")
-        os.system("git remote add origin " + cfg[section]['git'])
+        os.system("git remote add origin " + cfg[repo]['git'])
     else:
         os.chdir(repo_path)
     os.system("git fetch --all >/dev/null")
@@ -75,8 +76,7 @@ def make_config(repo, bname):
         with open(base_dir + "flavour/" + flavour) as f:
             for l in f.readlines():
                 os.system("./scripts/config --" + l)
-    if args.flavours:
-        os.system("./scripts/config --set-str localversion " + bname)
+    os.system("./scripts/config --set-str localversion -" + bname)
     shutil.copyfile(".config", dst + "/.config")
     os.remove(".config")
     os.chdir(base_dir + "repo/" + repo)
@@ -97,6 +97,7 @@ def make_build(repo, kpath):
         sys.exit(1)
 
 def make_install(repo, kpath, bname):
+    make_del(repo)
     print("  Installing linux " + col.green + bname + col.reset)
     os.chdir(kpath)
     with open('include/config/kernel.release') as f:
@@ -130,12 +131,12 @@ def make_del(repo):
     bname = repo
     if args.flavours:
         bname += "-" + '_'.join(args.flavours)
-    print("rm /lib/modules/" + bname)
-    #shutil.rmtree("/lib/modules/" + bname)
-    print("rm /boot/" + bname)
-    #os.remove("/boot/" + bname)
-    print("/boot/loader/entries/arch-" + bname + ".conf")
-    #os.remove("/boot/loader/entries/arch-" + bname + ".conf")
+    #print("Removing modules")
+    os.system("rm -rf /lib/modules/*" + bname + "+")
+    #print("Removing kernel images")
+    os.system("rm -rf /boot/" + bname)
+    #print("Removing bootloader entry")
+    os.system("rm -rf /boot/loader/entries/arch-" + bname + ".conf")
 
 def make_kexec(repo):
     kpath = "/boot/" + repo
