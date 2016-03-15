@@ -9,7 +9,9 @@ import argparse
 from subprocess import Popen, PIPE
 
 base_dir = os.path.dirname(os.path.realpath(__file__)) + "/"
+syscfg = configparser.ConfigParser()
 cfg = configparser.ConfigParser()
+syscfg.read(base_dir + "sys.ini")
 cfg.read(base_dir + "repo/repo.ini")
 
 commands = ["build", "update", "patch", "kexec", "del", "firm"]
@@ -20,7 +22,8 @@ parser = argparse.ArgumentParser(description='kern')
 parser.add_argument('cmd', choices=commands, action="store")
 parser.add_argument('repo', choices=repos + ["all"], action="store")
 parser.add_argument('flavours', choices=flavours, nargs='*', action="store")
-parser.add_argument('-c', action="store", dest="config", default="l450")
+parser.add_argument('-c', action="store", dest="config",
+                    default=syscfg['system_config']['default_config'])
 args = parser.parse_args()
 
 class col:
@@ -86,14 +89,15 @@ def make_config(repo, bname):
 
 def make_build(repo, kpath):
     env = cfg[repo]['env']
+    cc_threads = syscfg['system_config']['cc_threads']
     os.chdir(base_dir + "repo/" + repo)
     print("  Compiling linux")
-    if os.system("KBUILD_OUTPUT=" + kpath + " make -j5 " + env + "> /dev/null") != 0:
+    if os.system("KBUILD_OUTPUT=" + kpath + " make -j" + cc_threads + " " + env + "> /dev/null") != 0:
         sys.exit(1)
     print("  Compiling modules")
     if os.system("KBUILD_OUTPUT=" + kpath + " make modules_prepare " + env + ">/dev/null") != 0:
         sys.exit(1)
-    if os.system("KBUILD_OUTPUT=" + kpath + " make modules -j5 " + env + ">/dev/null") != 0:
+    if os.system("KBUILD_OUTPUT=" + kpath + " make modules -j" + cc_threads + " " + env + ">/dev/null") != 0:
         sys.exit(1)
 
 def make_install(repo, kpath, bname):
@@ -113,10 +117,11 @@ def make_install(repo, kpath, bname):
 
     print("  Adding bootloader entry")
     with open('/boot/loader/entries/arch-' + bname + '.conf', 'w') as f:
+        rootfs_path = syscfg['system_config']['rootfs']
         f.write("title  Arch Linux (" + bname + ")\n")
         f.write("linux  /" + bname + "/vmlinuz\n")
         f.write("initrd /" + bname + "/initramfs.img\n")
-        f.write("options    root=/dev/sda5 rw" + "\n")
+        f.write("options    root=/dev/" + rootfs_path + " rw" + "\n")
 
 def make(repo):
     bname = repo
@@ -159,6 +164,8 @@ def make_firm():
     os.system("make install > /dev/null")
 
 if __name__ == "__main__":
+    args.flavours.sort()
+
     if args.cmd == "update":
         if args.repo == "all":
             for section in cfg.sections():
