@@ -24,6 +24,8 @@ parser.add_argument('repo', choices=repos + ["all"], action="store")
 parser.add_argument('flavours', choices=flavours, nargs='*', action="store")
 parser.add_argument('-c', action="store", dest="config",
                     default=syscfg['system_config']['default_config'])
+parser.add_argument('-b', action="store", dest="branch",
+                    default="")
 args = parser.parse_args()
 
 class col:
@@ -45,10 +47,9 @@ def repo_reset(repo):
             os.system("git am --signoff -q < " + base_dir + "patch/" + patch)
 
 def repo_update(repo):
-    branch = cfg[repo]['branch']
     repo_path = base_dir + "repo/" + repo
     print("Updating " + col.green + repo + col.reset)
-    print("  Fetching " + col.blue + branch + col.reset)
+    print("  Fetching " + col.blue + args.branch + col.reset)
     if not os.path.exists(repo_path):
         os.makedirs(repo_path)
         os.chdir(repo_path)
@@ -65,15 +66,19 @@ def repo_patch(repo):
     repo_reset(repo)
 
 def make_config(repo, bname):
-    if not args.flavours:
-        dst = base_dir + "build/" + repo
-    else:
-        dst = base_dir + "build/" + repo + "_" + '_'.join(args.flavours)
+    #if not args.flavours:
+    #    dst = base_dir + "build/" + repo
+    #else:
+    #    dst = base_dir + "build/" + repo + "_" + '_'.join(args.flavours)
+    dst = base_dir + "build/" + bname
     kpath = base_dir + "repo/" + repo
     if not os.path.exists(dst):
         os.makedirs(dst)
     os.chdir(kpath)
-    shutil.copyfile(base_dir + "config/" + args.config, ".config")
+    if args.config == "defconfig":
+        os.system("make defconfig >/dev/null")
+    else:
+        shutil.copyfile(base_dir + "config/" + args.config, ".config")
     for flavour in args.flavours:
         print("  Applying " + col.blue + flavour + col.reset + " flavour")
         with open(base_dir + "flavour/" + flavour) as f:
@@ -124,10 +129,11 @@ def make_install(repo, kpath, bname):
         f.write("options    root=/dev/" + rootfs_path + " rw" + "\n")
 
 def make(repo):
-    bname = repo
+    branch = args.branch.split('/')[-1]
+    bname = repo + "_" + branch
     if args.flavours:
-        bname += "-" + '_'.join(args.flavours)
-    print("Building " + col.green + repo + col.reset + " " + str(args.flavours))
+        bname += "_" + '-'.join(args.flavours)
+    print("Building " + col.green + repo + col.reset + " (" + branch + ") " + str(args.flavours))
     kpath = make_config(repo, bname)
     make_build(repo, kpath)
     make_install(repo, kpath, bname)
@@ -165,6 +171,8 @@ def make_firm():
 
 if __name__ == "__main__":
     args.flavours.sort()
+    if args.branch == "":
+        args.branch = cfg[args.repo]['branch']
 
     if args.cmd == "update":
         if args.repo == "all":
