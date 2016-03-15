@@ -1,0 +1,2 @@
+enable gcov_kernel
+enable gcov_profile_all

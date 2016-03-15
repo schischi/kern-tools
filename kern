@@ -84,6 +84,9 @@ def make_config(repo, bname):
         with open(base_dir + "flavour/" + flavour) as f:
             for l in f.readlines():
                 os.system("./scripts/config --" + l)
+    with open(base_dir + "flavour/common") as f:
+        for l in f.readlines():
+            os.system("./scripts/config --" + l)
     os.system("./scripts/config --set-str localversion -" + bname)
     shutil.copyfile(".config", dst + "/.config")
     os.remove(".config")
