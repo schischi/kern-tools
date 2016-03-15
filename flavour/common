@@ -1,1 +1,2 @@
 enable efi_stub
+disable localversion_auto
