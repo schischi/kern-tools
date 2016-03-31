@@ -112,8 +112,6 @@ def make_install(repo, kpath, bname):
     make_del(repo)
     print("  Installing linux " + col.green + bname + col.reset)
     os.chdir(kpath)
-    with open('include/config/kernel.release') as f:
-        release = f.readline().rstrip('\n')
     # Install new release
     os.makedirs("/boot/" + bname, exist_ok=True)
     os.system("KBUILD_OUTPUT=" + kpath + " make modules_install >/dev/null")
@@ -121,7 +119,7 @@ def make_install(repo, kpath, bname):
     shutil.copyfile('vmlinux', '/boot/' + bname + '/vmlinux')
 
     print("  Creating initramfs")
-    os.system(" mkinitcpio -k " + release + " -c /etc/mkinitcpio.conf -g /boot/" + bname + "/initramfs.img > /dev/null 2>&1")
+    os.system(" mkinitcpio -k /boot/" + bname + "/vmlinux -c /etc/mkinitcpio.conf -g /boot/" + bname + "/initramfs.img > /dev/null 2>&1")
 
     print("  Adding bootloader entry")
     with open('/boot/loader/entries/arch-' + bname + '.conf', 'w') as f:
@@ -130,6 +128,7 @@ def make_install(repo, kpath, bname):
         f.write("linux  /" + bname + "/vmlinuz\n")
         f.write("initrd /" + bname + "/initramfs.img\n")
         f.write("options    root=/dev/" + rootfs_path + " rw" + "\n")
+
 
 def make(repo):
     branch = args.branch.split('/')[-1]
